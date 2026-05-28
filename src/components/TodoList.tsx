@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Check, Trash2, ClipboardList, Circle, Clock } from 'lucide-react';
-import { supabase } from '../lib/supabase';
 import { Todo } from '../types';
+import { loadTodos, createTodo, updateTodoCompletion, removeTodo, removeCompletedTodos } from '../lib/todoStorage';
 
 function formatTime(dateStr: string): string {
   const date = new Date(dateStr);
@@ -27,54 +27,47 @@ export default function TodoList() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchTodos();
+    loadTodos().then((data) => {
+      setTodos(data);
+      setLoading(false);
+    });
   }, []);
 
-  async function fetchTodos() {
-    const { data } = await supabase
-      .from('todos')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (data) setTodos(data);
-    setLoading(false);
-  }
-
-  async function addTodo() {
+  async function handleAdd() {
     if (!input.trim()) return;
     const text = input.trim();
     setInput('');
-    const { data } = await supabase
-      .from('todos')
-      .insert({ text, completed: false })
-      .select()
-      .maybeSingle();
-    if (data) setTodos((prev) => [data, ...prev]);
+
+    const newTodo = await createTodo(text);
+    if (newTodo) {
+      setTodos((prev) => [newTodo, ...prev]);
+    }
   }
 
-  async function toggleTodo(id: string, completed: boolean) {
+  async function handleToggle(id: string, completed: boolean) {
     const newCompleted = !completed;
-    await supabase.from('todos').update({
-      completed: newCompleted,
-      completed_at: newCompleted ? new Date().toISOString() : null
-    }).eq('id', id);
+    const now = new Date().toISOString();
+    const completedAt = newCompleted ? now : null;
+
+    // 先更新 UI，再异步落库
     setTodos((prev) =>
-      prev.map((t) => (t.id === id ? {
-        ...t,
-        completed: newCompleted,
-        completed_at: newCompleted ? new Date().toISOString() : null
-      } : t))
+      prev.map((t) =>
+        t.id === id ? { ...t, completed: newCompleted, completed_at: completedAt ?? undefined } : t
+      )
     );
+
+    await updateTodoCompletion(id, newCompleted, completedAt);
   }
 
-  async function deleteTodo(id: string) {
-    await supabase.from('todos').delete().eq('id', id);
+  async function handleDelete(id: string) {
     setTodos((prev) => prev.filter((t) => t.id !== id));
+    await removeTodo(id);
   }
 
-  async function clearCompleted() {
+  async function handleClearCompleted() {
     const completedIds = todos.filter((t) => t.completed).map((t) => t.id);
-    await supabase.from('todos').delete().in('id', completedIds);
     setTodos((prev) => prev.filter((t) => !t.completed));
+    await removeCompletedTodos(completedIds);
   }
 
   const filtered = todos.filter((t) => {
@@ -98,12 +91,12 @@ export default function TodoList() {
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && addTodo()}
+          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
           placeholder="添加新的待办事项..."
           className="flex-1 bg-gray-800 border border-gray-600 focus:border-emerald-500 text-white rounded-xl px-4 py-3 outline-none transition-colors placeholder-gray-500"
         />
         <button
-          onClick={addTodo}
+          onClick={handleAdd}
           disabled={!input.trim()}
           className="px-4 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-xl transition-colors"
         >
@@ -148,7 +141,7 @@ export default function TodoList() {
               }`}
             >
               <button
-                onClick={() => toggleTodo(todo.id, todo.completed)}
+                onClick={() => handleToggle(todo.id, todo.completed)}
                 className="flex-shrink-0 transition-colors"
               >
                 {todo.completed ? (
@@ -180,7 +173,7 @@ export default function TodoList() {
                 </div>
               </div>
               <button
-                onClick={() => deleteTodo(todo.id)}
+                onClick={() => handleDelete(todo.id)}
                 className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition-all flex-shrink-0"
               >
                 <Trash2 size={16} />
@@ -192,7 +185,7 @@ export default function TodoList() {
 
       {completedCount > 0 && (
         <button
-          onClick={clearCompleted}
+          onClick={handleClearCompleted}
           className="text-sm text-gray-500 hover:text-red-400 transition-colors"
         >
           清除所有已完成事项 ({completedCount})
