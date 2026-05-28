@@ -18,6 +18,12 @@ export default function ChristmasTree() {
   const [photos, setPhotos] = useState<{ id: string, texture: THREE.Texture, pos: THREE.Vector3 }[]>([]);
   const [isCameraActive, setIsCameraActive] = useState(false);
 
+  // 用 ref 同步 state / isCameraActive，使动画循环无需依赖它们也能读到最新值
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const cameraActiveRef = useRef(isCameraActive);
+  cameraActiveRef.current = isCameraActive;
+
   // Three.js 核心对象引用
   const refs = useRef<{
     scene: THREE.Scene | null,
@@ -27,11 +33,16 @@ export default function ChristmasTree() {
     particles: any[],
     instancedMesh: THREE.InstancedMesh | null,
     ornamentGroup: THREE.Group | null,
+    // 星空背景
+    starField: THREE.Points | null,
+    // 照片动画数据：存储每张照片的原始位置、爆炸目标和速度
+    photoData: { mesh: THREE.Mesh; basePos: THREE.Vector3; baseQuat: THREE.Quaternion; explodeTarget: THREE.Vector3; vel: THREE.Vector3; rotationAxis: THREE.Vector3 }[],
     handLandmarker: HandLandmarker | null,
     handPos: { x: number, y: number }
   }>({
     scene: null, renderer: null, camera: null, controls: null,
     particles: [], instancedMesh: null, ornamentGroup: null,
+    starField: null, photoData: [],
     handLandmarker: null, handPos: { x: 0.5, y: 0.5 }
   });
 
@@ -68,6 +79,49 @@ export default function ChristmasTree() {
     const pl = new THREE.PointLight(0xffffff, 2);
     pl.position.set(10, 10, 10);
     scene.add(pl);
+
+    // 树干：棕色圆柱体，位于树体底部下方
+    const trunkGeom = new THREE.CylinderGeometry(0.35, 0.5, 1.5, 32);
+    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x8B5E3C, roughness: 0.8 });
+    const trunk = new THREE.Mesh(trunkGeom, trunkMat);
+    trunk.position.set(0, -3.75, 0);
+    scene.add(trunk);
+
+    // 星空背景：在大球面上散布 2000 个发光点，模拟夜空中远近不同的星星
+    const STAR_COUNT = 2000;
+    const starGeom = new THREE.BufferGeometry();
+    const starPositions = new Float32Array(STAR_COUNT * 3);
+    const starColors = new Float32Array(STAR_COUNT * 3);
+    for (let i = 0; i < STAR_COUNT; i++) {
+      // 球面随机分布，半径 30~50 形成层次感
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const r = 30 + Math.random() * 20;
+      starPositions[i * 3] = Math.sin(phi) * Math.cos(theta) * r;
+      starPositions[i * 3 + 1] = Math.sin(phi) * Math.sin(theta) * r;
+      starPositions[i * 3 + 2] = Math.cos(phi) * r;
+      // 颜色略有差异：白/浅蓝/微黄，模拟不同星等的星星
+      const brightness = 0.5 + Math.random() * 0.5;
+      const tint = Math.random();
+      if (tint < 0.1) {
+        starColors.set([1, 0.9, 0.7], i * 3);        // 暖黄色
+      } else if (tint < 0.2) {
+        starColors.set([0.7, 0.8, 1], i * 3);        // 冷蓝色
+      } else {
+        starColors.set([brightness, brightness, brightness], i * 3); // 白色
+      }
+    }
+    starGeom.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+    starGeom.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
+    const starMat = new THREE.PointsMaterial({
+      size: 0.15,
+      vertexColors: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,   // 避免星星遮盖其他物体
+    });
+    const starField = new THREE.Points(starGeom, starMat);
+    scene.add(starField);
+    refs.current.starField = starField;
 
     // 装饰品组
     const ornamentGroup = new THREE.Group();
@@ -112,10 +166,18 @@ export default function ChristmasTree() {
       // 更新粒子
       refs.current.particles.forEach((p, i) => {
         const target = new THREE.Vector3();
-        if (state === 'explode') {
-          target.copy(p.pos).normalize().multiplyScalar(10);
-          p.vel.lerp(target, 0.05);
-        } else if (state === 'vortex') {
+        if (stateRef.current === 'explode') {
+          // 粒子爆炸：用斐波那契球面分布，每个粒子飞向球面上唯一的位置，实现"漫天飞舞"
+          const phi = Math.acos(1 - 2 * ((i + 0.5) / PARTICLE_COUNT)); // 纬度均匀分布
+          const theta = Math.PI * (1 + Math.sqrt(5)) * i;               // 黄金角经度，避免规则排列
+          const dist = 6 + Math.sin(i * 2.3 + p.phase) * 3;             // 距离变化，更有层次感
+          target.set(
+            Math.sin(phi) * Math.cos(theta) * dist,
+            Math.cos(phi) * dist,
+            Math.sin(phi) * Math.sin(theta) * dist
+          );
+          p.vel.lerp(target.sub(p.pos), 0.03);
+        } else if (stateRef.current === 'vortex') {
           p.pos.applyAxisAngle(new THREE.Vector3(0, 1, 0), 0.1);
           target.set(0, p.pos.y, 0);
           p.vel.lerp(target.sub(p.pos).multiplyScalar(0.2), 0.1);
@@ -135,11 +197,41 @@ export default function ChristmasTree() {
       });
       mesh.instanceMatrix.needsUpdate = true;
 
+      // 更新照片位置：explode 时飞散，其他状态回归原位
+      const photoData = refs.current.photoData;
+      for (let i = 0; i < photoData.length; i++) {
+        const pd = photoData[i];
+        if (stateRef.current === 'explode') {
+          // 飞向爆炸目标位置
+          pd.vel.lerp(pd.explodeTarget.clone().sub(pd.mesh.position), 0.03);
+          // 在基准轴附近随机扰动后归一化，使旋转轴持续摆动
+          const wobble = new THREE.Vector3(
+            pd.rotationAxis.x + (Math.random() - 0.5) * 0.5,
+            pd.rotationAxis.y + (Math.random() - 0.5) * 0.5,
+            pd.rotationAxis.z + (Math.random() - 0.5) * 0.5
+          ).normalize();
+          pd.mesh.rotateOnWorldAxis(wobble, 0.008);
+        } else {
+          // 回归原位
+          pd.vel.lerp(pd.basePos.clone().sub(pd.mesh.position), 0.05);
+          // 角度也回归贴合树面的初始姿态
+          pd.mesh.quaternion.slerp(pd.baseQuat, 0.05);
+        }
+        pd.mesh.position.add(pd.vel);
+        pd.vel.multiplyScalar(0.92);
+      }
+
       // 手势微调相机 (如果没在点击拖拽)
-      if (isCameraActive && state === 'idle') {
+      if (cameraActiveRef.current && stateRef.current === 'idle') {
         scene.rotation.y = THREE.MathUtils.lerp(scene.rotation.y, (refs.current.handPos.x - 0.5) * 1.5, 0.05);
       } else {
-        if (state === 'idle') scene.rotation.y += 0.005;
+        if (stateRef.current === 'idle') scene.rotation.y += 0.005;
+      }
+
+      // 星空缓慢旋转，营造宇宙深邃感
+      if (refs.current.starField) {
+        refs.current.starField.rotation.y += 0.0003;
+        refs.current.starField.rotation.x += 0.0001;
       }
 
       renderer.render(scene, camera);
@@ -162,7 +254,7 @@ export default function ChristmasTree() {
       window.removeEventListener('resize', handleResize);
       renderer.dispose();
     };
-  }, [state, isCameraActive]);
+  }, []); // 场景仅初始化一次，状态变化通过 ref 传递给动画循环
 
   // 3. 处理图片挂载
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -182,13 +274,43 @@ export default function ChristmasTree() {
         const angle = Math.random() * Math.PI * 2;
         const pos = new THREE.Vector3(Math.cos(angle) * radius, y, Math.sin(angle) * radius);
 
-        // 创建 3D 照片挂件
-        const geom = new THREE.CircleGeometry(0.5, 32);
+        // 创建 3D 照片挂件（矩形平面，保持照片原比例）
+        const geom = new THREE.PlaneGeometry(0.6, 0.8);
         const mat = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide });
         const ornament = new THREE.Mesh(geom, mat);
         ornament.position.copy(pos);
-        ornament.lookAt(0, y, 0);
+        // 构建三轴坐标系：Z=向外法线，Y=沿锥面向上，X=水平切线
+        const outward = new THREE.Vector3(pos.x, 0, pos.z).normalize();
+        // 锥面向上切线：半径随高度缩小（斜率 0.5），所以向上时径向向内
+        const upTangent = new THREE.Vector3(-outward.x * 0.5, 1, -outward.z * 0.5).normalize();
+        const Z = new THREE.Vector3(outward.x, 0.5, outward.z).normalize(); // 锥面法线
+        const X = new THREE.Vector3().crossVectors(upTangent, Z).normalize(); // 右手系：X = Y × Z
+        const Y = upTangent;                                                // 向上
+        const matrix = new THREE.Matrix4().makeBasis(X, Y, Z);
+        ornament.setRotationFromMatrix(matrix);
         refs.current.ornamentGroup!.add(ornament);
+
+        // 爆炸目标：立方体空间内均匀随机分布，而非球面
+        const explodeTarget = new THREE.Vector3(
+          (Math.random() - 0.5) * 16,   // x ∈ [-8, 8]
+          (Math.random() - 0.5) * 12,   // y ∈ [-6, 6]
+          (Math.random() - 0.5) * 16    // z ∈ [-8, 8]
+        );
+        // 随机旋转轴（单位向量），飘散时绕此轴缓慢旋转
+        const rotationAxis = new THREE.Vector3(
+          Math.random() * 2 - 1,
+          Math.random() * 2 - 1,
+          Math.random() * 2 - 1
+        ).normalize();
+
+        refs.current.photoData.push({
+          mesh: ornament,
+          basePos: pos.clone(),
+          baseQuat: ornament.quaternion.clone(), // 初始贴合树面的角度
+          explodeTarget,
+          vel: new THREE.Vector3(),
+          rotationAxis,
+        });
 
         setPhotos(prev => [...prev, { id: Math.random().toString(), texture, pos }]);
       };
@@ -202,6 +324,8 @@ export default function ChristmasTree() {
         refs.current.ornamentGroup.remove(refs.current.ornamentGroup.children[0]);
       }
     }
+    // 清空照片动画数据，防止动画循环继续引用已删除的 mesh
+    refs.current.photoData = [];
     setPhotos([]);
   };
 
