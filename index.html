@@ -1,13 +1,66 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Fun Tool Website</title>
-    <meta property="og:image" content="https://bolt.new/static/og_default.png" />
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- 基础 SEO -->
+    <title>FunTools - 趣味工具箱 | 小游戏与小工具集合</title>
+    <meta name="description" content="FunTools 是一个模块化的趣味工具箱，集成了圣诞树 3D 互动、幸运转盘、俄罗斯方块、番茄钟、塔罗占卜、骰子工具等小游戏和实用工具。" />
+    <meta name="keywords" content="趣味工具,小游戏,圣诞树,俄罗斯方块,番茄钟,转盘,塔罗占卜,骰子,在线工具,3D互动" />
+    <meta name="author" content="FunTools" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#030712" />
+
+    <!-- 多语言/地区 -->
+    <meta name="language" content="Chinese" />
+    <meta name="geo.region" content="CN" />
+
+    <!-- Open Graph（用于微信/QQ/Facebook/LinkedIn 等分享预览） -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="FunTools - 趣味工具箱 | 小游戏与小工具集合" />
+    <meta property="og:description" content="圣诞树 3D 互动、幸运转盘、俄罗斯方块、番茄钟、塔罗占卜、骰子等趣味小工具，一站式体验。" />
+    <meta property="og:url" content="https://funtools.example.com" />
+    <meta property="og:site_name" content="FunTools" />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:image" content="/social-card.svg" />
+    <meta property="og:image:type" content="image/svg+xml" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+
+    <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image" content="https://bolt.new/static/og_default.png" />
+    <meta name="twitter:title" content="FunTools - 趣味工具箱" />
+    <meta name="twitter:description" content="圣诞树 3D 互动、幸运转盘、俄罗斯方块等趣味小工具集合。" />
+    <meta name="twitter:image" content="/social-card.svg" />
+
+    <!-- PWA / Web App -->
+    <link rel="manifest" href="/site.webmanifest" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <meta name="apple-mobile-web-app-title" content="FunTools" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <!-- 结构化数据（JSON-LD），帮助搜索引擎理解网站结构 -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "FunTools",
+      "url": "https://funtools.example.com",
+      "description": "模块化趣味工具箱，集成多种小游戏和实用工具。",
+      "applicationCategory": "GameApplication",
+      "operatingSystem": "Web",
+      "inLanguage": "zh-CN",
+      "author": {
+        "@type": "Organization",
+        "name": "FunTools"
+      }
+    }
+    </script>
   </head>
   <body>
     <div id="root"></div>
